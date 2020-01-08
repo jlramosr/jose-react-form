@@ -1,0 +1,249 @@
+import React, { useState } from "react";
+import { Form, FormSpy, Field } from "react-final-form";
+import { OnChange } from "react-final-form-listeners";
+import Grid from "@material-ui/core/Grid";
+import moment from "moment";
+import get from "lodash/get";
+import FormElement from "./FormElement";
+import { APP_FORMAT, FORM_FORMAT } from "./formats";
+
+const onSubmit = async values => {
+  window.alert(JSON.stringify(values, 0, 2));
+};
+
+const ElementListener = ({ when, is, set, to }) => (
+  // No subscription. We only use Field to get to the change function
+  <Field name={set} subscription={{}}>
+    {({ input: { onChange } }) => (
+      <FormSpy subscription={{}}>
+        {({ form }) => (
+          <OnChange name={when}>
+            {value => {
+              if (value === is) {
+                onChange(to);
+              }
+            }}
+          </OnChange>
+        )}
+      </FormSpy>
+    )}
+  </Field>
+);
+
+const ElementConditionRequeriments = props => {
+  // requirements = [ { when, of, is } ]
+  const {
+    requirements,
+    requirementIndex = 0,
+    renderWhenTrue,
+    renderWhenFalse
+  } = props;
+  const { when, of: _of, is } = requirements[requirementIndex];
+  console.log("REQUIREMENTS", requirements, requirementIndex);
+  console.log("when", when, "of", _of, "is", is);
+  return (
+    <Field name={_of} subscription={{ [when]: true }}>
+      {({ input: { value } }) => {
+        const shouldContinue = value === is;
+        const nextRequirementIndex = requirementIndex + 1;
+        console.log(shouldContinue, value);
+        if (requirements.length === nextRequirementIndex) {
+          shouldContinue ? renderWhenTrue() : renderWhenFalse();
+          return null;
+        }
+        console.log("continue", nextRequirementIndex);
+        if (shouldContinue) {
+          return (
+            <ElementConditionRequeriments
+              {...props}
+              requirementIndex={nextRequirementIndex}
+            />
+          );
+        }
+        renderWhenFalse();
+        return null;
+      }}
+    </Field>
+  );
+};
+
+const Element = ({
+  grid,
+  ...elementWithoutDependenciesAndInitialValueAndGrid
+}) => {
+  return (
+    <Grid item {...grid}>
+      <FormElement {...elementWithoutDependenciesAndInitialValueAndGrid} />
+    </Grid>
+  );
+};
+
+const ElementWithPropsDependencies = ({
+  conditions,
+  index = 0,
+  elementProps = {}
+}) => {
+  const { if: _if, then } = conditions[index];
+  const isLastCondition = index === conditions.length - 1;
+  const { when, of: _of, is } = _if[0];
+  let accElementProps = { ...elementProps };
+  return (
+    <Field subscription={{ [when]: true }} name={_of}>
+      {({ input: { value } }) => {
+        if (value === is) {
+          accElementProps = { ...elementProps, ...then };
+        }
+        if (isLastCondition) {
+          return <Element {...accElementProps} />;
+        }
+        return (
+          <ElementWithPropsDependencies
+            conditions={conditions}
+            index={index + 1}
+            elementProps={accElementProps}
+          />
+        );
+      }}
+    </Field>
+  );
+};
+
+const CustomForm = ({ elements }) => {
+  const keys = Object.keys(elements);
+
+  // from App to Form
+  const initialValues = () =>
+    keys.reduce((acc, elemName) => {
+      const { initialValue, multiple, type } = elements[elemName];
+      if (initialValue) {
+        let formValue =
+          typeof initialValue === "object"
+            ? get(initialValue, "value")
+            : initialValue;
+        const format = get(initialValue, "format");
+        if (type === "date") {
+          formValue = moment(formValue, format || APP_FORMAT.DATE).format(
+            FORM_FORMAT.DATE // debe coincidir con el formato puesto en Date.jsx
+          );
+        }
+        if (type === "select" || type === "query") {
+          if (multiple) {
+          } else {
+            /*formValue = {
+              [FORM_FORMAT.SELECT.id]: initialValue[get(format, 'id')],
+              [FORM_FORMAT.SELECT.string]: initialValue[get(format, 'string')],
+            }*/
+          }
+        }
+        return { ...acc, [elemName]: formValue };
+      }
+      return acc;
+    }, {});
+
+  // from Form to API
+  /*const submit = (values, modifiedValues) =>
+    keys.reduce((acc, elemName) => {
+      const { apiKey } = elements[elemName];
+      // if creation
+      const formValue = values[elemName];
+      if (value) {
+        let apiValue = value;
+        if (type === "date") {
+          apiValue = moment(value, FORM_FORMAT.DATE).format(APP_FORMAT.DATE);
+        }
+        if (type === "select" || type === "query") {
+          if (multiple) {
+          } else {
+            apiValue = value[FORM_FORMAT.SELECT.id];
+          }
+        }
+        return { ...acc, [apiKey || elemName]: apiValue };
+      }
+      return acc;
+    }, {});*/
+
+  const validate = values =>
+    keys.reduce((acc, elemName) => {
+      const value = values[elemName];
+      const element = elements[elemName];
+      const requiredText = get(element, "validations.required");
+      if (requiredText && !value) {
+        return { ...acc, [elemName]: requiredText };
+      }
+      return acc;
+    }, {});
+
+  const renderElements = () =>
+    keys.map(elemName => {
+      const {
+        dependencies,
+        initialValue,
+        ...elementWithoutDependenciesAndInitialValue
+      } = elements[elemName];
+      const valueDependencies = get(dependencies, "value", []);
+      const propsDependencies = get(dependencies, "props", []);
+      return (
+        <div key={elemName}>
+          {/* listeners */}
+          {valueDependencies.map(({ if: _if, then }) =>
+            _if.map(({ when, is }, index) => (
+              <ElementListener
+                key={`listener-${elemName}-${index}`}
+                when={when}
+                is={is}
+                set={elemName}
+                to={then}
+              />
+            ))
+          )}
+          {/* element */}
+          {propsDependencies && propsDependencies.length ? (
+            <ElementWithPropsDependencies
+              conditions={propsDependencies}
+              elementProps={{
+                ...elementWithoutDependenciesAndInitialValue,
+                name: elemName
+              }}
+            />
+          ) : (
+            <Element
+              name={elemName}
+              {...elementWithoutDependenciesAndInitialValue}
+            />
+          )}
+        </div>
+      );
+    });
+
+  return (
+    <Form
+      onSubmit={onSubmit}
+      initialValues={initialValues()}
+      validate={validate}
+      render={({ handleSubmit, form, submitting, pristine, values }) => (
+        <form onSubmit={handleSubmit}>
+          <Grid container spacing={2}>
+            {renderElements()}
+          </Grid>
+
+          <div className="buttons">
+            <button type="submit" disabled={submitting || pristine}>
+              Submit
+            </button>
+            <button
+              type="button"
+              onClick={form.reset}
+              disabled={submitting || pristine}
+            >
+              Reset
+            </button>
+          </div>
+
+          <pre>{JSON.stringify(values, 0, 2)}</pre>
+        </form>
+      )}
+    />
+  );
+};
+
+export default CustomForm;

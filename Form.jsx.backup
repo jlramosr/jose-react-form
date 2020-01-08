@@ -1,0 +1,254 @@
+import React, { useState } from "react";
+import { Form, FormSpy, Field } from "react-final-form";
+import { OnChange } from "react-final-form-listeners";
+import Grid from "@material-ui/core/Grid";
+import moment from "moment";
+import FormElement from "./FormElement";
+import get from "lodash/get";
+
+// Formatos de los tipos de campo que vienen de la App provenientes de la API (pueden ser modificados con la propiedad 'format')
+const APP_FORMAT = {
+  DATE: "DD-MM-YYYYTHH:mm:ss.SSS"
+};
+
+// Formatos de los tipos de campo del propio formulario
+const FORM_FORMAT = {
+  DATE: "YYYY/MM/DD",
+  SELECT: { id: "id", string: "value" } // claves para el id (valor) y el string
+};
+
+const onSubmit = async values => {
+  window.alert(JSON.stringify(values, 0, 2));
+};
+
+const ElementListener = ({ when, is, set, to }) => (
+  // No subscription. We only use Field to get to the change function
+  <Field name={set} subscription={{}}>
+    {({ input: { onChange } }) => (
+      <FormSpy subscription={{}}>
+        {({ form }) => (
+          <OnChange name={when}>
+            {value => {
+              if (value === is) {
+                onChange(to);
+              }
+            }}
+          </OnChange>
+        )}
+      </FormSpy>
+    )}
+  </Field>
+);
+
+const ElementConditionRequeriments = props => {
+  // requirements = [ { when, of, is } ]
+  const {
+    requirements,
+    requirementIndex = 0,
+    renderWhenTrue,
+    renderWhenFalse
+  } = props;
+  const { when, of: _of, is } = requirements[requirementIndex];
+  console.log("REQUIREMENTS", requirements, requirementIndex);
+  console.log("when", when, "of", _of, "is", is);
+  return (
+    <Field name={_of} subscription={{ [when]: true }}>
+      {({ input: { value } }) => {
+        const shouldContinue = value === is;
+        const nextRequirementIndex = requirementIndex + 1;
+        console.log(shouldContinue, value);
+        if (requirements.length === nextRequirementIndex) {
+          shouldContinue ? renderWhenTrue() : renderWhenFalse();
+          return null;
+        }
+        console.log("continue", nextRequirementIndex);
+        if (shouldContinue) {
+          return (
+            <ElementConditionRequeriments
+              {...props}
+              requirementIndex={nextRequirementIndex}
+            />
+          );
+        }
+        renderWhenFalse();
+        return null;
+      }}
+    </Field>
+  );
+};
+
+const Element = ({
+  grid,
+  ...elementWithoutDependenciesAndInitialValueAndGrid
+}) => {
+  return (
+    <Grid item {...grid}>
+      <FormElement {...elementWithoutDependenciesAndInitialValueAndGrid} />
+    </Grid>
+  );
+};
+
+const CustomForm = ({ elements }) => {
+  const keys = Object.keys(elements);
+  const [dependentProps, setDependentProps] = useState({});
+
+  // from App to Form
+  const initialValues = () =>
+    keys.reduce((acc, elemName) => {
+      const { initialValue, multiple, type } = elements[elemName];
+      if (initialValue) {
+        let formValue =
+          typeof initialValue === "object"
+            ? get(initialValue, "value")
+            : initialValue;
+        const format = get(initialValue, "format");
+        if (type === "date") {
+          formValue = moment(initialValue, format || APP_FORMAT.DATE).format(
+            FORM_FORMAT.DATE
+          );
+        }
+        if (type === "select" || type === "query") {
+          if (multiple) {
+          } else {
+            /*formValue = {
+              [FORM_FORMAT.SELECT.id]: initialValue[get(format, 'id')],
+              [FORM_FORMAT.SELECT.string]: initialValue[get(format, 'string')],
+            }*/
+          }
+        }
+        return { ...acc, [elemName]: formValue };
+      }
+      return acc;
+    }, {});
+
+  // from Form to API
+  /*const submit = (values, modifiedValues) =>
+    keys.reduce((acc, elemName) => {
+      const { apiKey } = elements[elemName];
+      // if creation
+      const formValue = values[elemName];
+      if (value) {
+        let apiValue = value;
+        if (type === "date") {
+          apiValue = moment(value, FORM_FORMAT.DATE).format(APP_FORMAT.DATE);
+        }
+        if (type === "select" || type === "query") {
+          if (multiple) {
+          } else {
+            apiValue = value[FORM_FORMAT.SELECT.id];
+          }
+        }
+        return { ...acc, [apiKey || elemName]: apiValue };
+      }
+      return acc;
+    }, {});*/
+
+  const validate = values =>
+    keys.reduce((acc, elemName) => {
+      const value = values[elemName];
+      const element = elements[elemName];
+      const requiredText = get(element, "validations.required");
+      if (requiredText && !value) {
+        return { ...acc, [elemName]: requiredText };
+      }
+      return acc;
+    }, {});
+
+  const renderElements = () =>
+    keys.map(elemName => {
+      const {
+        dependencies,
+        initialValue,
+        ...elementWithoutDependenciesAndInitialValue
+      } = elements[elemName];
+      const propsDependencies = get(dependencies, "props", []);
+      return (
+        <div key={elemName}>
+          {get(dependencies, "value", []).map(({ if: _if, then }) =>
+            _if.map(({ when, is }, index) => (
+              <ElementListener
+                key={`listener-${elemName}-${index}`}
+                when={when}
+                is={is}
+                set={elemName}
+                to={then}
+              />
+            ))
+          )}
+          {propsDependencies && propsDependencies.length ? (
+            <>
+              {propsDependencies.map(({ if: _if, then }, index) => {
+                return (
+                  <ElementConditionRequeriments
+                    key={`condition-${elemName}-${index}`}
+                    requirements={_if}
+                    renderWhenTrue={() => {
+                      console.log(
+                        "AQUI!!",
+                        elemName,
+                        then,
+                        dependentProps,
+                        get(dependentProps, elemName, {})
+                      );
+                      setDependentProps({
+                        ...dependentProps,
+                        [elemName]: {
+                          ...get(dependentProps, elemName, {}),
+                          ...then
+                        }
+                      });
+                    }}
+                    renderWhenFalse={() => {
+                      console.log("FALSE");
+                    }}
+                  />
+                );
+              })}
+              <Element
+                name={elemName}
+                {...elementWithoutDependenciesAndInitialValue}
+                {...get(dependentProps, elemName, {})}
+              />
+            </>
+          ) : (
+            <Element
+              name={elemName}
+              {...elementWithoutDependenciesAndInitialValue}
+            />
+          )}
+        </div>
+      );
+    });
+
+  return (
+    <Form
+      onSubmit={onSubmit}
+      initialValues={initialValues()}
+      validate={validate}
+      render={({ handleSubmit, form, submitting, pristine, values }) => (
+        <form onSubmit={handleSubmit}>
+          <Grid container spacing={2}>
+            {renderElements()}
+          </Grid>
+
+          <div className="buttons">
+            <button type="submit" disabled={submitting || pristine}>
+              Submit
+            </button>
+            <button
+              type="button"
+              onClick={form.reset}
+              disabled={submitting || pristine}
+            >
+              Reset
+            </button>
+          </div>
+
+          <pre>{JSON.stringify(values, 0, 2)}</pre>
+        </form>
+      )}
+    />
+  );
+};
+
+export default CustomForm;

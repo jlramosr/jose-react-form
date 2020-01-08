@@ -1,0 +1,215 @@
+import React, { forwardRef } from "react";
+import { Field } from "react-final-form";
+//import Select from "react-select";
+// import Select from "@material-ui/core/Select";
+import TextField from "@material-ui/core/TextField";
+import Typography from "@material-ui/core/Typography";
+import Autocomplete from "@material-ui/lab/Autocomplete";
+import useStyles from "./Query.styles";
+import get from "lodash/get";
+import { FORM_FORMAT } from "../constants";
+import { FixedSizeList } from "react-window";
+import { useQuery } from "@apollo/react-hooks";
+import InfiniteLoader from "react-window-infinite-loader";
+import { GET_STARSHIPS } from "../../Queries/Starships";
+
+const LIMIT = 10;
+
+const useQueryOptions = () => {
+  const { fetchMore, loading, error, data } = useQuery(GET_STARSHIPS, {
+    variables: { first: 10 }
+  });
+  if (loading && !data) return { loading, options: [] };
+  //const itemsCount = data.allStarships.totalCount;
+  const endCursor = data.allStarships.pageInfo.endCursor;
+  const hasNextPage = data.allStarships.pageInfo.hasNextPage;
+
+  const loadMore = () =>
+    fetchMore({
+      query: GET_STARSHIPS,
+      notifyOnNetworkStatusChange: true,
+      updateQuery: (previousResult, { fetchMoreResult }) => {
+        const { edges: oldItems } = previousResult["allStarships"];
+        const { edges: newItems } = fetchMoreResult["allStarships"];
+        return {
+          allStarships: {
+            ...fetchMoreResult["allStarships"],
+            edges: [...oldItems, ...newItems]
+          }
+        };
+      },
+      variables: { after: endCursor, first: 10 }
+    });
+
+  return {
+    options: data.allStarships.edges.map(({ node }) => node),
+    hasNextPage,
+    loading,
+    loadMore
+  };
+};
+
+const Query = ({
+  help,
+  label,
+  multiple,
+  name,
+  placeholder,
+  readOnly,
+  request,
+  validations
+}) => {
+  const classes = useStyles();
+
+  const { options, loading, loadMore, hasNextPage } = useQueryOptions();
+  const { idPath, stringPath } = FORM_FORMAT.SELECT;
+
+  const optionsCount = hasNextPage ? options.length + 1 : options.length;
+  const isOptionLoaded = index => !hasNextPage || index < options.length;
+
+  console.log("OPTIONS", options);
+
+  const ListboxComponent = forwardRef((props, ref) => (
+    <div ref={ref}>
+      <InfiniteLoader
+        isItemLoaded={isOptionLoaded}
+        itemCount={optionsCount}
+        loadMoreItems={loadMore}
+      >
+        {({ onItemsRendered, ref: ref2 }) => (
+          <FixedSizeList
+            ref={ref2}
+            onItemsRendered={onItemsRendered}
+            height={150}
+            itemCount={optionsCount}
+            itemSize={35}
+            width={300}
+          >
+            {({ index, style }) => {
+              let content;
+              if (!isOptionLoaded(index)) {
+                content = "Loading...";
+              } else {
+                const { name } = options[index];
+                content = name;
+              }
+              return <div style={style}>{content}</div>;
+            }}
+          </FixedSizeList>
+        )}
+      </InfiniteLoader>
+    </div>
+  ));
+
+  return (
+    <Field name={name}>
+      {({ input, meta }) => {
+        const error = meta.error && (meta.modified || meta.submitting);
+        const helperText = error ? meta.error : help;
+        let value = input.value;
+        console.log(input);
+        if (!value && multiple) {
+          value = [];
+        }
+        return (
+          <Autocomplete
+            onChange={(event, value) => {
+              // https://reactjs.org/docs/events.html#event-pooling
+              input.onChange(value);
+            }}
+            getOptionSelected={(option, optionSelected) =>
+              get(option, idPath, 1) === get(optionSelected, idPath, 2)
+            }
+            id={`form-query-${name}`}
+            multiple={multiple}
+            disabled={readOnly}
+            style={{ width: 300 }}
+            filterSelectedOptions={multiple}
+            disableCloseOnSelect={multiple}
+            disableListWrap
+            classes={classes}
+            ListboxComponent={ListboxComponent}
+            options={options}
+            getOptionLabel={option => option.name}
+            value={value}
+            PaperComponent
+            renderOption={string => <Typography>{string}</Typography>}
+            renderInput={params => (
+              <TextField
+                {...params}
+                helperText={helperText}
+                size="small"
+                required={get(validations, "required")}
+                placeholder={placeholder}
+                label={label}
+                variant="outlined"
+                fullWidth
+                error={error}
+              />
+            )}
+          />
+        );
+      }}
+      ;
+    </Field>
+  );
+
+  // The only thing a custom input needs to do to be compatible with React
+  // Final Form is to accept a value prop and somehow call the onChange
+  // callback to change the value.
+  return (
+    <Field name={name}>
+      {/* todos los movimientos del campo por parte del usuario.
+          meta.error es lo que viene del validate del Form para evitar hacer un submit con errores.
+          Otra cosa es el manejo de errores del propio TextField para ver el campo marcado en rojo */}
+      {({ input, meta }) => {
+        const error = meta.error && (meta.modified || meta.submitting);
+        const helperText = error ? meta.error : help;
+        const formattedOptions = options.map(({ id, string }) => ({
+          [idPath]: id,
+          [stringPath]: string
+        }));
+        let value = input.value;
+        console.log(input);
+        if (!value && multiple) {
+          value = [];
+        }
+        return (
+          <Autocomplete
+            getOptionSelected={(option, optionSelected) =>
+              get(option, idPath, 1) === get(optionSelected, idPath, 2)
+            }
+            filterSelectedOptions={multiple}
+            id={`form-select-${name}`}
+            disableCloseOnSelect={multiple}
+            multiple={multiple}
+            options={formattedOptions}
+            disabled={readOnly}
+            getOptionLabel={option => option.string}
+            value={value}
+            PaperComponent
+            onChange={(event, value) => {
+              // https://reactjs.org/docs/events.html#event-pooling
+              input.onChange(value);
+            }}
+            renderInput={params => (
+              <TextField
+                {...params}
+                helperText={helperText}
+                size="small"
+                required={get(validations, "required")}
+                placeholder={placeholder}
+                label={label}
+                variant="outlined"
+                fullWidth
+                error={error}
+              />
+            )}
+          />
+        );
+      }}
+    </Field>
+  );
+};
+
+export default Query;

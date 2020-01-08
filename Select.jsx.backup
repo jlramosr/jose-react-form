@@ -1,0 +1,109 @@
+import React, { useRef, useState } from "react";
+import { Field } from "react-final-form";
+//import Select from "react-select";
+import Select from "@material-ui/core/Select";
+import InputLabel from "@material-ui/core/InputLabel";
+import MenuItem from "@material-ui/core/MenuItem";
+import FormHelperText from "@material-ui/core/FormHelperText";
+import FormControl from "@material-ui/core/FormControl";
+import useStyles from "./Select.styles";
+import get from "lodash/get";
+import { FORM_FORMAT } from "../constants";
+
+const _Select = ({
+  help,
+  label,
+  name,
+  options,
+  placeholder,
+  readOnly,
+  validations
+}) => {
+  const classes = useStyles();
+
+  // The only thing a custom input needs to do to be compatible with React
+  // Final Form is to accept a value prop and somehow call the onChange
+  // callback to change the value.
+  return (
+    <Field name={name}>
+      {/* todos los movimientos del campo por parte del usuario.
+          meta.error es lo que viene del validate del Form para evitar hacer un submit con errores.
+          Otra cosa es el manejo de errores del propio TextField para ver el campo marcado en rojo */}
+      {({ input, meta }) => {
+        const error = meta.error && (meta.modified || meta.submitting);
+        //console.log(name, meta);
+        const helperText = error ? meta.error : help;
+        const formattedOptions = options.map(({ id, string }) => ({
+          [FORM_FORMAT.SELECT.id]: id,
+          [FORM_FORMAT.SELECT.string]: string
+        }));
+        return (
+          <FormControl
+            required={get(validations, "required")}
+            disabled={readOnly}
+            fullWidth
+            error={error}
+            size="small"
+            variant="outlined"
+            className={classes.formControl}
+          >
+            <InputLabel id={`select-label-${name}`}>{label}</InputLabel>
+            <Select
+              labelId={`select-label-${name}`}
+              value={input.value}
+              onChange={input.onChange}
+              placeholder={placeholder}
+            >
+              <MenuItem dense value={null}>
+                &nbsp;
+              </MenuItem>
+              {options.map(({ id, string }) => (
+                <MenuItem dense value={id}>
+                  {string}
+                </MenuItem>
+              ))}
+            </Select>
+            <FormHelperText>{helperText}</FormHelperText>
+          </FormControl>
+        );
+        /*<Select
+        labelId={`select-label-${name}`}
+        value={input.value}
+        onChange={input.onChange}
+        placeholder={placeholder}
+      >
+        <MenuItem dense value={null}>
+          &nbsp;
+        </MenuItem>
+        {options.map(({ id, string }) => (
+          <MenuItem dense value={id}>
+            {string}
+          </MenuItem>
+        ))}
+      </Select>*/
+        /*return (
+          <Select
+            name={name}
+            label={label}
+            onChange={input.onChange}
+            options={formattedOptions}
+            value={input.value}
+            isDisabled={readOnly}
+          />
+        );*/
+        /*return (
+          <TextField
+            label={label}
+            placeholder={placeholder}
+            required={get(validations, "required", false)}
+            error={error}
+            helperText={helperText}
+            fullWidth
+          />
+        );*/
+      }}
+    </Field>
+  );
+};
+
+export default _Select;
